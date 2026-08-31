@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  name      String
+  plan      String     @default("FREE")
+  artifacts Artifact[]
+  comments  Comment[]
+  createdAt DateTime   @default(now())
+}
+
+model Artifact {
+  id          String           @id @default(cuid())
+  title       String
+  format      String
+  status      String           @default("DRAFT")
+  visibility  String           @default("PRIVATE")
+  archived    Boolean          @default(false)
+  ownerId     String
+  owner       User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  versions    ArtifactVersion[]
+  invitations Invitation[]
+  comments    Comment[]
+  views       ViewEvent[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model ArtifactVersion {
+  id          String   @id @default(cuid())
+  artifactId  String
+  artifact    Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  number      Int
+  content     String
+  message     String?
+  checksum    String?
+  createdAt   DateTime @default(now())
+  @@unique([artifactId, number])
+}
+
+model Invitation {
+  id          String   @id @default(cuid())
+  artifactId  String
+  artifact    Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  email       String
+  status      String   @default("PENDING")
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  @@unique([artifactId, email])
+}
+
+model Comment {
+  id          String        @id @default(cuid())
+  artifactId  String
+  artifact    Artifact      @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  authorId    String
+  author      User          @relation(fields: [authorId], references: [id])
+  body        String
+  anchor      String?
+  status      String        @default("OPEN")
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model ViewEvent {
+  id          String   @id @default(cuid())
+  artifactId  String
+  artifact    Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  visitorHash String
+  duration    Int      @default(0)
+  createdAt   DateTime @default(now())
+}
