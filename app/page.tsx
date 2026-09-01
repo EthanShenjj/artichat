@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell, ChevronDown, ChevronRight, Copy, FileCode2, FileText, Grid2X2,
   HelpCircle, Link, LockKeyhole, MoreHorizontal, Plus, Search, Send, Settings2, Share2,
@@ -64,6 +64,12 @@ export default function Home() {
   const [language, setLanguage] = useState<Language>("zh");
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [previewWidth, setPreviewWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return 494;
+    const stored = Number(window.localStorage.getItem("artichat-preview-width"));
+    return Number.isFinite(stored) && stored >= 360 && stored <= 720 ? stored : 494;
+  });
+  const [isResizing, setIsResizing] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("all");
   const [favoriteIds, setFavoriteIds] = useState<string[]>(() => {
     if (typeof window === "undefined") return [];
@@ -107,6 +113,21 @@ export default function Home() {
   }, [toast]);
 
   useEffect(() => { window.localStorage.setItem("artichat-favorites", JSON.stringify(favoriteIds)); }, [favoriteIds]);
+  useEffect(() => { window.localStorage.setItem("artichat-preview-width", String(previewWidth)); }, [previewWidth]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+    const move = (event: PointerEvent) => {
+      const min = 360;
+      const max = Math.max(min, Math.min(720, window.innerWidth - 530));
+      setPreviewWidth(Math.max(min, Math.min(max, window.innerWidth - event.clientX)));
+    };
+    const end = () => setIsResizing(false);
+    document.body.classList.add("resizing-preview");
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end, { once: true });
+    return () => { document.body.classList.remove("resizing-preview"); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); };
+  }, [isResizing]);
 
   useEffect(() => {
     if (!selectedId || !reviewOpen) return;
@@ -196,7 +217,7 @@ export default function Home() {
       <div className="profile"><span className="avatar">ES</span><div><strong>Ethan Shen</strong><small>{language === "zh" ? "免费版" : "Free plan"}</small></div><button aria-label="Profile menu"><ChevronDown size={15}/></button></div>
     </aside>
 
-    <main className="workspace">
+    <main className={`workspace ${reviewOpen ? "" : "review-closed"}`} style={{ "--preview-width": `${previewWidth}px` } as CSSProperties}>
       <header className="topbar">
         <div className="crumb"><span>{workspaceTitle}</span><ChevronRight size={15}/><strong>{selected?.title ?? t.document}</strong></div>
         <div className="top-actions"><div className="language"><button className={language === "zh" ? "active" : ""} onClick={() => setLanguage("zh")}>中</button><span>/</span><button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>EN</button></div><button className="icon-button" aria-label="Search" onClick={() => setSearchOpen((open) => !open)}><Search size={20}/></button><button className="icon-button" aria-label="Settings" onClick={() => setToast(language === "zh" ? "设置将在下一步开放" : "Settings will be available next.")}><Settings2 size={20}/></button><button className="help" aria-label="Help" onClick={() => setToast(language === "zh" ? "需要帮助？上传一个文件即可开始。" : "Need help? Upload a file to get started.")}><HelpCircle size={18}/></button></div>
@@ -207,14 +228,14 @@ export default function Home() {
       {workspaceView === "activity" ? <ActivityFeed artifacts={artifacts} language={language} onOpen={openReview}/> : <><section className="filter-row"><div className="tabs"><button className={filter === "ALL" ? "current" : ""} onClick={() => setFilter("ALL")}>{t.all}<span>{artifacts.length}</span></button><button className={filter === "IN_REVIEW" ? "current" : ""} onClick={() => setFilter("IN_REVIEW")}>{t.reviewing}<span>{artifacts.filter((item) => item.status === "IN_REVIEW").length}</span></button><button className={filter === "DRAFT" ? "current" : ""} onClick={() => setFilter("DRAFT")}>{t.drafts}<span>{artifacts.filter((item) => item.status === "DRAFT").length}</span></button><button className={filter === "APPROVED" ? "current" : ""} onClick={() => setFilter("APPROVED")}>{t.approved}<span>{artifacts.filter((item) => item.status === "APPROVED").length}</span></button></div><button className="sort" onClick={() => setDescending((current) => !current)}>{t.latest}<ChevronDown className={descending ? "" : "flip"} size={14}/></button></section><section className="artifact-list">{visibleArtifacts.length === 0 ? <div className="empty-state"><p>{workspaceView === "favorites" ? (language === "zh" ? "还没有收藏。点产物右侧的菜单图标即可收藏。" : "No favorites yet. Use the menu beside an artifact to save one.") : filter === "ALL" ? t.noArtifacts : (language === "zh" ? "这个分类暂时没有产物。" : "There are no artifacts in this category.")}</p>{workspaceView === "all" && <button className="upload" onClick={() => setUploadOpen(true)}><Upload size={16}/>{t.upload}</button>}</div> : visibleArtifacts.map((artifact) => <ArtifactRow key={artifact.id} artifact={artifact} selected={artifact.id === selected?.id} favorite={favoriteIds.includes(artifact.id)} language={language} onSelect={() => openReview(artifact.id)} onToggleFavorite={() => toggleFavorite(artifact.id)} />)}</section></>}
     </main>
 
-    {reviewOpen && selected && <aside className="review-pane">
+    {reviewOpen && selected && <><div className="drag-divider" style={{ right: previewWidth }} role="separator" aria-orientation="vertical" aria-label="Resize preview" onPointerDown={(event) => { event.preventDefault(); setIsResizing(true); }}/><aside className="review-pane" style={{ width: previewWidth }}>
       <header className="review-head"><div><p className="eyebrow">{language === "zh" ? "正在评审" : "IN REVIEW"}</p><h2>{selected.title}</h2></div><button className="close" aria-label="Close review" onClick={() => { setReviewOpen(false); setVersionMenuOpen(false); }}><X size={20}/></button></header>
       <div className="review-actions"><div className="version-picker"><button className="version" onClick={() => setVersionMenuOpen((open) => !open)}>v{selectedVersion ?? version}.0 <ChevronDown className={versionMenuOpen ? "flip" : ""} size={14}/></button>{versionMenuOpen && <div className="version-menu">{versions.length ? versions.map((item) => <button key={item.id} className={item.number === selectedVersion ? "active" : ""} onClick={() => { setSelectedVersion(item.number); setVersionMenuOpen(false); }}><span>v{item.number}.0</span><small>{item.message || (language === "zh" ? "初始版本" : "Initial version")}</small></button>) : <span>{language === "zh" ? "暂无版本" : "No versions"}</span>}</div>}</div><button onClick={() => setShareOpen(true)}><Share2 size={15}/>{t.share}</button><button className="publish" onClick={publish} disabled={busy === "publish"}><Send size={15}/>{busy === "publish" ? (language === "zh" ? "发布中…" : "Publishing…") : t.publish}</button></div>
       <div className="review-canvas"><ArtifactPreview artifact={selected} version={previewVersion} language={language}/>
         <aside className="annotation"><button className="add-note" onClick={() => setCommentOpen(true)}><Plus size={14}/>{t.addComment}</button><div className="thread-line"/><CommentCard initials="MC" name="Maya Chen" body={language === "zh" ? "这个切入点很有力。能否再具体说明等待的实际成本？" : "Strong framing. Can we make the cost of waiting more concrete?"}/><CommentCard initials="JR" name="Jordan Reid" body={language === "zh" ? "这里的客户引用很有效，或许可以把它移到更前面？" : "The customer quote is effective. Could it move earlier?"}/></aside>
       </div>
       <footer className="review-footer"><span>🔒 {language === "zh" ? "私密 · 已邀请 4 位评审者" : "Private · 4 reviewers invited"}</span><span>◷ {selected?.views ?? 0} {language === "zh" ? "次访问" : "views"}</span><button onClick={copyLink}><Link size={12}/>{language === "zh" ? "复制稳定链接" : "Copy stable link"}</button></footer>
-    </aside>}
+    </aside></>}
 
     {uploadOpen && <UploadDialog language={language} onClose={() => setUploadOpen(false)} onCreated={addArtifact}/>}
     {shareOpen && <ShareDialog language={language} email={inviteEmail} setEmail={setInviteEmail} busy={busy === "invite"} onClose={() => setShareOpen(false)} onInvite={invite} onCopy={copyLink}/>}
