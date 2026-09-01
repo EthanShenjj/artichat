@@ -14,7 +14,7 @@ type ApiArtifact = {
 };
 type Artifact = ApiArtifact & { age: string };
 type Filter = "ALL" | "IN_REVIEW" | "DRAFT" | "APPROVED";
-type ArtifactVersion = { id: string; number: number; message: string | null; createdAt: string };
+type ArtifactVersion = { id: string; number: number; content: string; message: string | null; createdAt: string };
 
 const copy = {
   zh: {
@@ -114,6 +114,7 @@ export default function Home() {
   }, [selectedId, reviewOpen]);
 
   const selected = useMemo(() => artifacts.find((item) => item.id === selectedId), [artifacts, selectedId]);
+  const previewVersion = useMemo(() => versions.find((item) => item.number === selectedVersion) ?? versions[0], [versions, selectedVersion]);
   const addArtifact = (artifact: ApiArtifact) => {
     const item = { ...artifact, age: relativeTime(artifact.updatedAt, language) };
     setArtifacts((current) => [item, ...current]);
@@ -198,7 +199,7 @@ export default function Home() {
     {reviewOpen && selected && <aside className="review-pane">
       <header className="review-head"><div><p className="eyebrow">{language === "zh" ? "正在评审" : "IN REVIEW"}</p><h2>{selected.title}</h2></div><button className="close" aria-label="Close review" onClick={() => { setReviewOpen(false); setVersionMenuOpen(false); }}><X size={20}/></button></header>
       <div className="review-actions"><div className="version-picker"><button className="version" onClick={() => setVersionMenuOpen((open) => !open)}>v{selectedVersion ?? version}.0 <ChevronDown className={versionMenuOpen ? "flip" : ""} size={14}/></button>{versionMenuOpen && <div className="version-menu">{versions.length ? versions.map((item) => <button key={item.id} className={item.number === selectedVersion ? "active" : ""} onClick={() => { setSelectedVersion(item.number); setVersionMenuOpen(false); }}><span>v{item.number}.0</span><small>{item.message || (language === "zh" ? "初始版本" : "Initial version")}</small></button>) : <span>{language === "zh" ? "暂无版本" : "No versions"}</span>}</div>}</div><button onClick={() => setShareOpen(true)}><Share2 size={15}/>{t.share}</button><button className="publish" onClick={publish} disabled={busy === "publish"}><Send size={15}/>{busy === "publish" ? (language === "zh" ? "发布中…" : "Publishing…") : t.publish}</button></div>
-      <div className="review-canvas"><article className="document"><div className="doc-top"><span className="doc-chip"><FileText size={14}/>{formatMeta(selected?.format ?? "MARKDOWN", language).toUpperCase()}</span><span>{selected?.age ?? ""}</span></div><p className="doc-kicker">{language === "zh" ? "北极星指标 / 2025 Q3" : "NORTH STAR / 2025 Q3"}</p><h3>{t.docTitle}</h3><p className="lede">{t.docLead}</p><div className="quote"><span>“</span><p>{language === "zh" ? "我们不再问如何让用户回来，而是问：什么值得他们再回来。" : "We no longer ask how to bring people back. We ask what is worth returning for."}</p></div><h4>{language === "zh" ? "流失背后的信号" : "Signals behind churn"}</h4><p>{language === "zh" ? "在过去 90 天中，第一个错失的关键时刻，比仪表盘所显示的更早到来。首次使用时未能获得明确成果，往往就是后来流失的开始。" : "Across the last 90 days, the first missed moment arrives earlier than the dashboard suggests. A missing early outcome often becomes the start of churn."}</p><div className="data-strip"><div><small>{language === "zh" ? "首周成果" : "WEEK-ONE OUTCOME"}</small><b>41%</b></div><div><small>{language === "zh" ? "再次访问" : "RETURN VISITS"}</small><b>2.4×</b></div></div></article>
+      <div className="review-canvas"><ArtifactPreview artifact={selected} version={previewVersion} language={language}/>
         <aside className="annotation"><button className="add-note" onClick={() => setCommentOpen(true)}><Plus size={14}/>{t.addComment}</button><div className="thread-line"/><CommentCard initials="MC" name="Maya Chen" body={language === "zh" ? "这个切入点很有力。能否再具体说明等待的实际成本？" : "Strong framing. Can we make the cost of waiting more concrete?"}/><CommentCard initials="JR" name="Jordan Reid" body={language === "zh" ? "这里的客户引用很有效，或许可以把它移到更前面？" : "The customer quote is effective. Could it move earlier?"}/></aside>
       </div>
       <footer className="review-footer"><span>🔒 {language === "zh" ? "私密 · 已邀请 4 位评审者" : "Private · 4 reviewers invited"}</span><span>◷ {selected?.views ?? 0} {language === "zh" ? "次访问" : "views"}</span><button onClick={copyLink}><Link size={12}/>{language === "zh" ? "复制稳定链接" : "Copy stable link"}</button></footer>
@@ -209,6 +210,32 @@ export default function Home() {
     {commentOpen && <div className="composer"><div><span className="avatar blue">ES</span><textarea autoFocus value={commentBody} onChange={(event) => setCommentBody(event.target.value)} placeholder={language === "zh" ? "写下你的评论…" : "Write a comment…"}/></div><footer><span>{language === "zh" ? "评论会通知参与者" : "Participants will be notified"}</span><button onClick={postComment} disabled={busy === "comment"}>{busy === "comment" ? "…" : t.post}</button></footer></div>}
     {toast && <div className="toast"><Sparkles size={16}/>{toast}</div>}
   </>;
+}
+
+function ArtifactPreview({ artifact, version, language }: { artifact: Artifact; version?: ArtifactVersion; language: Language }) {
+  const content = version?.content ?? "";
+  if (artifact.format === "HTML") return <article className="document artifact-preview"><div className="doc-top"><span className="doc-chip"><FileCode2 size={14}/>HTML</span><span>{relativeTime(artifact.updatedAt, language)}</span></div><iframe title={`${artifact.title} preview`} className="html-preview" sandbox="" srcDoc={content || "<p>No HTML content</p>"}/></article>;
+  if (artifact.format === "PDF") {
+    let details: { fileName?: string; size?: number } = {};
+    try { details = JSON.parse(content) as { fileName?: string; size?: number }; } catch { /* Earlier PDF records did not include metadata. */ }
+    return <article className="document artifact-preview"><div className="doc-top"><span className="doc-chip"><FileText size={14}/>PDF</span><span>{relativeTime(artifact.updatedAt, language)}</span></div><div className="file-preview"><FileText size={34}/><h3>{artifact.title}</h3><p>{details.fileName ?? (language === "zh" ? "已上传 PDF 文件" : "Uploaded PDF file")}</p><small>{details.size ? `${(details.size / 1024).toFixed(1)} KB` : (language === "zh" ? "PDF 预览需要对象存储支持" : "PDF preview needs object storage")}</small></div></article>;
+  }
+  return <article className="document artifact-preview"><div className="doc-top"><span className="doc-chip"><FileText size={14}/>MARKDOWN</span><span>{relativeTime(artifact.updatedAt, language)}</span></div><MarkdownPreview content={content} fallbackTitle={artifact.title} language={language}/></article>;
+}
+
+function MarkdownPreview({ content, fallbackTitle, language }: { content: string; fallbackTitle: string; language: Language }) {
+  const lines = content.trim().split("\n");
+  if (!content.trim()) return <div className="preview-empty"><h3>{fallbackTitle}</h3><p>{language === "zh" ? "这个版本暂时没有可显示的文本内容。" : "This version has no text content to display yet."}</p></div>;
+  return <div className="markdown-preview">{lines.map((line, index) => {
+    const key = `${index}-${line.slice(0, 12)}`;
+    if (!line.trim()) return <div key={key} className="markdown-space"/>;
+    if (line.startsWith("### ")) return <h4 key={key}>{line.slice(4)}</h4>;
+    if (line.startsWith("## ")) return <h3 key={key}>{line.slice(3)}</h3>;
+    if (line.startsWith("# ")) return <h2 key={key}>{line.slice(2)}</h2>;
+    if (line.startsWith("> ")) return <blockquote key={key}>{line.slice(2)}</blockquote>;
+    if (line.startsWith("- ") || line.startsWith("* ")) return <li key={key}>{line.slice(2)}</li>;
+    return <p key={key}>{line}</p>;
+  })}</div>;
 }
 
 function ArtifactRow({ artifact, selected, language, onSelect }: { artifact: Artifact; selected: boolean; language: Language; onSelect: () => void }) {
