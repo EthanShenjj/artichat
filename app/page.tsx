@@ -2,8 +2,8 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Bell, ChevronDown, ChevronRight, FileCode2, FileText, Grid2X2,
-  HelpCircle, Link, MoreHorizontal, Plus, Search, Send, Settings2, Share2,
+  Bell, ChevronDown, ChevronRight, Copy, FileCode2, FileText, Grid2X2,
+  HelpCircle, Link, LockKeyhole, MoreHorizontal, Plus, Search, Send, Settings2, Share2,
   Sparkles, Upload, Users, X,
 } from "lucide-react";
 
@@ -13,6 +13,7 @@ type ApiArtifact = {
   views: number; versions: number; updatedAt: string;
 };
 type Artifact = ApiArtifact & { age: string };
+type Filter = "ALL" | "IN_REVIEW" | "DRAFT" | "APPROVED";
 
 const copy = {
   zh: {
@@ -62,8 +63,15 @@ export default function Home() {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [filter, setFilter] = useState<Filter>("ALL");
+  const [descending, setDescending] = useState(true);
   const [toast, setToast] = useState("");
   const [commentOpen, setCommentOpen] = useState(false);
+  const [commentBody, setCommentBody] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [busy, setBusy] = useState<"comment" | "invite" | "publish" | null>(null);
   const [version, setVersion] = useState(3);
   const t = copy[language];
 
@@ -94,6 +102,45 @@ export default function Home() {
     setUploadOpen(false);
     setToast(t.uploaded);
   };
+  const visibleArtifacts = useMemo(() => artifacts
+    .filter((item) => filter === "ALL" || item.status === filter)
+    .sort((a, b) => descending ? new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime() : new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime()), [artifacts, filter, descending]);
+  const publish = async () => {
+    if (!selected) return;
+    setBusy("publish");
+    try {
+      const response = await fetch(`/api/artifacts/${selected.id}/versions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: "Published from ArtiChat", message: "Published update" }) });
+      if (!response.ok) throw new Error();
+      const { version: created } = await response.json();
+      setVersion(created.number); setToast(language === "zh" ? `已发布 v${created.number}.0` : `Version ${created.number}.0 published.`);
+    } catch { setToast(language === "zh" ? "发布失败，请重试" : "Publish failed. Please retry."); }
+    finally { setBusy(null); }
+  };
+  const postComment = async () => {
+    if (!selected || !commentBody.trim()) return;
+    setBusy("comment");
+    try {
+      const response = await fetch(`/api/artifacts/${selected.id}/comments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: commentBody, anchor: "document" }) });
+      if (!response.ok) throw new Error();
+      setArtifacts((items) => items.map((item) => item.id === selected.id ? { ...item, comments: item.comments + 1 } : item));
+      setCommentBody(""); setCommentOpen(false); setToast(language === "zh" ? "评论已保存" : "Comment saved.");
+    } catch { setToast(language === "zh" ? "评论保存失败" : "Couldn't save comment."); }
+    finally { setBusy(null); }
+  };
+  const invite = async () => {
+    if (!selected || !inviteEmail.trim()) return;
+    setBusy("invite");
+    try {
+      const response = await fetch(`/api/artifacts/${selected.id}/invitations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: inviteEmail }) });
+      const payload = await response.json(); if (!response.ok) throw new Error(payload.error);
+      setInviteEmail(""); setShareOpen(false); setToast(language === "zh" ? "邀请已发送" : "Invitation sent.");
+    } catch (reason) { setToast(reason instanceof Error ? reason.message : "Invitation failed."); }
+    finally { setBusy(null); }
+  };
+  const copyLink = async () => {
+    try { await navigator.clipboard.writeText(`${window.location.origin}/?artifact=${selected?.id ?? ""}`); setToast(language === "zh" ? "链接已复制" : "Link copied."); }
+    catch { setToast(language === "zh" ? "复制失败，请手动复制地址栏链接" : "Copy failed. Please copy the address bar URL."); }
+  };
 
   return <>
     <aside className="sidebar">
@@ -118,25 +165,27 @@ export default function Home() {
     <main className="workspace">
       <header className="topbar">
         <div className="crumb"><span>{t.all}</span><ChevronRight size={15}/><strong>{selected?.title ?? t.document}</strong></div>
-        <div className="top-actions"><div className="language"><button className={language === "zh" ? "active" : ""} onClick={() => setLanguage("zh")}>中</button><span>/</span><button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>EN</button></div><button className="icon-button" aria-label="Search" onClick={() => setToast(language === "zh" ? "搜索即将推出" : "Search is coming soon.")}><Search size={20}/></button><button className="icon-button" aria-label="Settings" onClick={() => setToast(language === "zh" ? "设置已准备好" : "Settings are ready.")}><Settings2 size={20}/></button><button className="help" aria-label="Help" onClick={() => setToast(language === "zh" ? "需要帮助？上传一个文件即可开始。" : "Need help? Upload a file to get started.")}><HelpCircle size={18}/></button></div>
+        <div className="top-actions"><div className="language"><button className={language === "zh" ? "active" : ""} onClick={() => setLanguage("zh")}>中</button><span>/</span><button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>EN</button></div><button className="icon-button" aria-label="Search" onClick={() => setSearchOpen((open) => !open)}><Search size={20}/></button><button className="icon-button" aria-label="Settings" onClick={() => setToast(language === "zh" ? "设置将在下一步开放" : "Settings will be available next.")}><Settings2 size={20}/></button><button className="help" aria-label="Help" onClick={() => setToast(language === "zh" ? "需要帮助？上传一个文件即可开始。" : "Need help? Upload a file to get started.")}><HelpCircle size={18}/></button></div>
       </header>
+      {searchOpen && <div className="utility-panel"><Search size={16}/><input autoFocus placeholder={language === "zh" ? "搜索产物" : "Search artifacts"} onChange={(event) => { const value = event.target.value.trim().toLowerCase(); const match = artifacts.find((item) => item.title.toLowerCase().includes(value)); if (match) setSelectedId(match.id); }}/><button onClick={() => setSearchOpen(false)}><X size={16}/></button></div>}
       <section className="page-head"><div><p className="eyebrow">{t.eyebrow}</p><h1>{t.title}</h1><p className="subhead">{t.subtitle}</p></div><button className="upload" onClick={() => setUploadOpen(true)}><Upload size={18}/>{t.upload}</button></section>
       <section className="stats"><div><small>{t.active}</small><strong>{artifacts.length}</strong><em>/ 3 {language === "zh" ? "免费" : "free"}</em></div><div><small>{t.pending}</small><strong>{artifacts.reduce((sum, item) => sum + item.comments, 0)}</strong><span className="up">↗ {language === "zh" ? "本周新增 3 条" : "3 new this week"}</span></div><div><small>{t.visits}</small><strong>{artifacts.reduce((sum, item) => sum + item.views, 0)}</strong><span className="up">↗ 18%</span></div><button onClick={() => setToast(language === "zh" ? "Pro 功能即将开放" : "Pro features are coming soon.")}>{t.unlock} ↗</button></section>
-      <section className="filter-row"><div className="tabs"><button className="current">{t.all}<span>{artifacts.length}</span></button><button>{t.reviewing}<span>1</span></button><button>{t.drafts}<span>{artifacts.filter((item) => item.status === "DRAFT").length}</span></button><button>{t.approved}<span>1</span></button></div><button className="sort">{t.latest}<ChevronDown size={14}/></button></section>
-      <section className="artifact-list">{artifacts.length === 0 ? <div className="empty-state"><p>{t.noArtifacts}</p><button className="upload" onClick={() => setUploadOpen(true)}><Upload size={16}/>{t.upload}</button></div> : artifacts.map((artifact) => <ArtifactRow key={artifact.id} artifact={artifact} selected={artifact.id === selected?.id} language={language} onSelect={() => setSelectedId(artifact.id)} />)}</section>
+      <section className="filter-row"><div className="tabs"><button className={filter === "ALL" ? "current" : ""} onClick={() => setFilter("ALL")}>{t.all}<span>{artifacts.length}</span></button><button className={filter === "IN_REVIEW" ? "current" : ""} onClick={() => setFilter("IN_REVIEW")}>{t.reviewing}<span>{artifacts.filter((item) => item.status === "IN_REVIEW").length}</span></button><button className={filter === "DRAFT" ? "current" : ""} onClick={() => setFilter("DRAFT")}>{t.drafts}<span>{artifacts.filter((item) => item.status === "DRAFT").length}</span></button><button className={filter === "APPROVED" ? "current" : ""} onClick={() => setFilter("APPROVED")}>{t.approved}<span>{artifacts.filter((item) => item.status === "APPROVED").length}</span></button></div><button className="sort" onClick={() => setDescending((current) => !current)}>{t.latest}<ChevronDown className={descending ? "" : "flip"} size={14}/></button></section>
+      <section className="artifact-list">{visibleArtifacts.length === 0 ? <div className="empty-state"><p>{filter === "ALL" ? t.noArtifacts : (language === "zh" ? "这个分类暂时没有产物。" : "There are no artifacts in this category.")}</p>{filter === "ALL" && <button className="upload" onClick={() => setUploadOpen(true)}><Upload size={16}/>{t.upload}</button>}</div> : visibleArtifacts.map((artifact) => <ArtifactRow key={artifact.id} artifact={artifact} selected={artifact.id === selected?.id} language={language} onSelect={() => setSelectedId(artifact.id)} />)}</section>
     </main>
 
     <aside className="review-pane">
       <header className="review-head"><div><p className="eyebrow">{language === "zh" ? "正在评审" : "IN REVIEW"}</p><h2>{selected?.title ?? t.document}</h2></div><button className="close" aria-label="Close review" onClick={() => setSelectedId(null)}><X size={20}/></button></header>
-      <div className="review-actions"><button className="version">v{version}.0 <ChevronDown size={14}/></button><button onClick={() => setToast(language === "zh" ? "稳定链接已复制" : "Stable link copied.")}><Share2 size={15}/>{t.share}</button><button className="publish" onClick={() => { setVersion((current) => current + 1); setToast(language === "zh" ? "新版本已发布" : "New version published."); }}><Send size={15}/>{t.publish}</button></div>
+      <div className="review-actions"><button className="version">v{version}.0 <ChevronDown size={14}/></button><button onClick={() => setShareOpen(true)}><Share2 size={15}/>{t.share}</button><button className="publish" onClick={publish} disabled={!selected || busy === "publish"}><Send size={15}/>{busy === "publish" ? (language === "zh" ? "发布中…" : "Publishing…") : t.publish}</button></div>
       <div className="review-canvas"><article className="document"><div className="doc-top"><span className="doc-chip"><FileText size={14}/>{formatMeta(selected?.format ?? "MARKDOWN", language).toUpperCase()}</span><span>{selected?.age ?? ""}</span></div><p className="doc-kicker">{language === "zh" ? "北极星指标 / 2025 Q3" : "NORTH STAR / 2025 Q3"}</p><h3>{t.docTitle}</h3><p className="lede">{t.docLead}</p><div className="quote"><span>“</span><p>{language === "zh" ? "我们不再问如何让用户回来，而是问：什么值得他们再回来。" : "We no longer ask how to bring people back. We ask what is worth returning for."}</p></div><h4>{language === "zh" ? "流失背后的信号" : "Signals behind churn"}</h4><p>{language === "zh" ? "在过去 90 天中，第一个错失的关键时刻，比仪表盘所显示的更早到来。首次使用时未能获得明确成果，往往就是后来流失的开始。" : "Across the last 90 days, the first missed moment arrives earlier than the dashboard suggests. A missing early outcome often becomes the start of churn."}</p><div className="data-strip"><div><small>{language === "zh" ? "首周成果" : "WEEK-ONE OUTCOME"}</small><b>41%</b></div><div><small>{language === "zh" ? "再次访问" : "RETURN VISITS"}</small><b>2.4×</b></div></div></article>
         <aside className="annotation"><button className="add-note" onClick={() => setCommentOpen(true)}><Plus size={14}/>{t.addComment}</button><div className="thread-line"/><CommentCard initials="MC" name="Maya Chen" body={language === "zh" ? "这个切入点很有力。能否再具体说明等待的实际成本？" : "Strong framing. Can we make the cost of waiting more concrete?"}/><CommentCard initials="JR" name="Jordan Reid" body={language === "zh" ? "这里的客户引用很有效，或许可以把它移到更前面？" : "The customer quote is effective. Could it move earlier?"}/></aside>
       </div>
-      <footer className="review-footer"><span>🔒 {language === "zh" ? "私密 · 已邀请 4 位评审者" : "Private · 4 reviewers invited"}</span><span>◷ {selected?.views ?? 0} {language === "zh" ? "次访问" : "views"}</span><span><Link size={12}/>{language === "zh" ? "稳定链接" : "Stable link"}</span></footer>
+      <footer className="review-footer"><span>🔒 {language === "zh" ? "私密 · 已邀请 4 位评审者" : "Private · 4 reviewers invited"}</span><span>◷ {selected?.views ?? 0} {language === "zh" ? "次访问" : "views"}</span><button onClick={copyLink}><Link size={12}/>{language === "zh" ? "复制稳定链接" : "Copy stable link"}</button></footer>
     </aside>
 
     {uploadOpen && <UploadDialog language={language} onClose={() => setUploadOpen(false)} onCreated={addArtifact}/>}
-    {commentOpen && <div className="composer"><div><span className="avatar blue">ES</span><textarea autoFocus placeholder={language === "zh" ? "写下你的评论…" : "Write a comment…"}/></div><footer><span>{language === "zh" ? "评论会通知参与者" : "Participants will be notified"}</span><button onClick={() => { setCommentOpen(false); setToast(language === "zh" ? "评论已发送" : "Comment sent."); }}>{t.post}</button></footer></div>}
+    {shareOpen && <ShareDialog language={language} email={inviteEmail} setEmail={setInviteEmail} busy={busy === "invite"} onClose={() => setShareOpen(false)} onInvite={invite} onCopy={copyLink}/>}
+    {commentOpen && <div className="composer"><div><span className="avatar blue">ES</span><textarea autoFocus value={commentBody} onChange={(event) => setCommentBody(event.target.value)} placeholder={language === "zh" ? "写下你的评论…" : "Write a comment…"}/></div><footer><span>{language === "zh" ? "评论会通知参与者" : "Participants will be notified"}</span><button onClick={postComment} disabled={busy === "comment"}>{busy === "comment" ? "…" : t.post}</button></footer></div>}
     {toast && <div className="toast"><Sparkles size={16}/>{toast}</div>}
   </>;
 }
@@ -150,6 +199,11 @@ function ArtifactRow({ artifact, selected, language, onSelect }: { artifact: Art
 
 function CommentCard({ initials, name, body }: { initials: string; name: string; body: string }) {
   return <div className="comment-card"><span className={`avatar ${initials === "MC" ? "coral" : "blue"}`}>{initials}</span><div><strong>{name} <small>12m</small></strong><p>{body}</p><button>回复</button><button>解决</button></div></div>;
+}
+
+function ShareDialog({ language, email, setEmail, busy, onClose, onInvite, onCopy }: { language: Language; email: string; setEmail: (value: string) => void; busy: boolean; onClose: () => void; onInvite: () => void; onCopy: () => void }) {
+  const isZh = language === "zh";
+  return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="share-title" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}><div className="share-modal"><button className="modal-close" onClick={onClose} disabled={busy} aria-label="Close"><X size={18}/></button><span className="mini-mark">a</span><h3 id="share-title">{isZh ? "安全分享" : "Share securely"}</h3><p>{isZh ? "邀请评审者查看此产物。邀请有效期为 7 天。" : "Invite reviewers to view this artifact. Invitations expire in 7 days."}</p><label>{isZh ? "评审者邮箱" : "Reviewer email"}</label><div className="invite-field"><input autoFocus type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@company.com"/><button onClick={onInvite} disabled={busy}>{busy ? "…" : (isZh ? "发送邀请" : "Send invite")}</button></div><div className="share-rule"/><div className="link-row"><div><LockKeyhole size={15}/><span><strong>{isZh ? "私密链接" : "Private link"}</strong><small>{isZh ? "只有受邀评审者可以打开" : "Only invited reviewers can open it"}</small></span></div><button onClick={onCopy}><Copy size={14}/>{isZh ? "复制链接" : "Copy link"}</button></div></div></div>;
 }
 
 function UploadDialog({ language, onClose, onCreated }: { language: Language; onClose: () => void; onCreated: (artifact: ApiArtifact) => void }) {
