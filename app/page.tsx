@@ -246,7 +246,7 @@ export default function Home() {
 
 function ArtifactPreview({ artifact, version, language }: { artifact: Artifact; version?: ArtifactVersion; language: Language }) {
   const content = version?.content ?? "";
-  if (artifact.format === "HTML") return <article className="document artifact-preview"><div className="doc-top"><span className="doc-chip"><FileCode2 size={14}/>HTML</span><span>{relativeTime(artifact.updatedAt, language)}</span></div><iframe title={`${artifact.title} preview`} className="html-preview" sandbox="" srcDoc={content || "<p>No HTML content</p>"}/></article>;
+  if (artifact.format === "HTML") return <article className="document artifact-preview"><div className="doc-top"><span className="doc-chip"><FileCode2 size={14}/>HTML</span><span>{relativeTime(artifact.updatedAt, language)}</span></div><iframe title={`${artifact.title} preview`} className="html-preview" sandbox="allow-scripts allow-forms allow-modals allow-popups" srcDoc={content || "<p>No HTML content</p>"}/></article>;
   if (artifact.format === "PDF") {
     let details: { fileName?: string; size?: number } = {};
     try { details = JSON.parse(content) as { fileName?: string; size?: number }; } catch { /* Earlier PDF records did not include metadata. */ }
