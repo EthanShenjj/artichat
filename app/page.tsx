@@ -4,7 +4,7 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "re
 import {
   Bell, ChevronDown, ChevronRight, Copy, FileCode2, FileText, Grid2X2,
   HelpCircle, Link, LockKeyhole, MoreHorizontal, Plus, Search, Send, Settings2, Share2,
-  Sparkles, Upload, Users, X,
+  Sparkles, Star, Upload, Users, X,
 } from "lucide-react";
 
 type Language = "zh" | "en";
@@ -14,6 +14,7 @@ type ApiArtifact = {
 };
 type Artifact = ApiArtifact & { age: string };
 type Filter = "ALL" | "IN_REVIEW" | "DRAFT" | "APPROVED";
+type WorkspaceView = "all" | "shared" | "activity" | "favorites";
 type ArtifactVersion = { id: string; number: number; content: string; message: string | null; createdAt: string };
 
 const copy = {
@@ -63,6 +64,11 @@ export default function Home() {
   const [language, setLanguage] = useState<Language>("zh");
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("all");
+  const [favoriteIds, setFavoriteIds] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try { return JSON.parse(window.localStorage.getItem("artichat-favorites") ?? "[]") as string[]; } catch { return []; }
+  });
   const [reviewOpen, setReviewOpen] = useState(true);
   const [versions, setVersions] = useState<ArtifactVersion[]>([]);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
@@ -100,6 +106,8 @@ export default function Home() {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
+  useEffect(() => { window.localStorage.setItem("artichat-favorites", JSON.stringify(favoriteIds)); }, [favoriteIds]);
+
   useEffect(() => {
     if (!selectedId || !reviewOpen) return;
     fetch(`/api/artifacts/${selectedId}`)
@@ -125,7 +133,9 @@ export default function Home() {
   };
   const visibleArtifacts = useMemo(() => artifacts
     .filter((item) => filter === "ALL" || item.status === filter)
-    .sort((a, b) => descending ? new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime() : new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime()), [artifacts, filter, descending]);
+    .filter((item) => workspaceView !== "shared" || item.comments > 0 || item.views > 0)
+    .filter((item) => workspaceView !== "favorites" || favoriteIds.includes(item.id))
+    .sort((a, b) => descending ? new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime() : new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime()), [artifacts, filter, descending, favoriteIds, workspaceView]);
   const publish = async () => {
     if (!selected) return;
     setBusy("publish");
@@ -163,6 +173,8 @@ export default function Home() {
     catch { setToast(language === "zh" ? "复制失败，请手动复制地址栏链接" : "Copy failed. Please copy the address bar URL."); }
   };
   const openReview = (id: string) => { setSelectedId(id); setReviewOpen(true); };
+  const toggleFavorite = (id: string) => setFavoriteIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  const workspaceTitle = workspaceView === "shared" ? t.shared : workspaceView === "activity" ? t.activity : workspaceView === "favorites" ? (language === "zh" ? "收藏夹" : "Favorites") : t.all;
 
   return <>
     <aside className="sidebar">
@@ -170,15 +182,15 @@ export default function Home() {
       <button className="create" onClick={() => setUploadOpen(true)}><Plus size={18}/><span>{t.new}</span></button>
       <p className="nav-label">{language === "zh" ? "工作区" : "WORKSPACE"}</p>
       <nav>
-        <button className="nav-active"><Grid2X2 size={18}/><span>{t.all}</span><b>{artifacts.length}</b></button>
-        <button onClick={() => setToast(language === "zh" ? "共享产物将在这里显示" : "Shared artifacts will appear here.")}><Users size={18}/><span>{t.shared}</span><b>4</b></button>
-        <button onClick={() => setToast(language === "zh" ? "暂无新动态" : "No new activity.")}><Bell size={18}/><span>{t.activity}</span><i/></button>
+        <button className={workspaceView === "all" ? "nav-active" : ""} onClick={() => setWorkspaceView("all")}><Grid2X2 size={18}/><span>{t.all}</span><b>{artifacts.length}</b></button>
+        <button className={workspaceView === "shared" ? "nav-active" : ""} onClick={() => setWorkspaceView("shared")}><Users size={18}/><span>{t.shared}</span><b>{artifacts.filter((item) => item.comments > 0 || item.views > 0).length}</b></button>
+        <button className={workspaceView === "activity" ? "nav-active" : ""} onClick={() => setWorkspaceView("activity")}><Bell size={18}/><span>{t.activity}</span><i/></button>
       </nav>
       <p className="nav-label spacer">{language === "zh" ? "收藏夹" : "FAVORITES"}</p>
       <nav>
-        <button onClick={() => setToast(language === "zh" ? "客户项目已选中" : "Client work selected.")}><span className="dot dot-yellow"/><span>{language === "zh" ? "客户项目" : "Client work"}</span><b>6</b></button>
-        <button onClick={() => setToast(language === "zh" ? "产品已选中" : "Product selected.")}><span className="dot dot-blue"/><span>{language === "zh" ? "产品" : "Product"}</span><b>3</b></button>
-        <button onClick={() => setToast(language === "zh" ? "研究已选中" : "Research selected.")}><span className="dot dot-coral"/><span>{language === "zh" ? "研究" : "Research"}</span><b>3</b></button>
+        <button className={workspaceView === "favorites" ? "nav-active" : ""} onClick={() => setWorkspaceView("favorites")}><span className="dot dot-yellow"/><span>{language === "zh" ? "收藏的产物" : "Favorite artifacts"}</span><b>{favoriteIds.length}</b></button>
+        <button onClick={() => { setWorkspaceView("all"); setFilter("APPROVED"); }}><span className="dot dot-blue"/><span>{language === "zh" ? "产品" : "Product"}</span><b>{artifacts.filter((item) => item.status === "APPROVED").length}</b></button>
+        <button onClick={() => { setWorkspaceView("all"); setFilter("DRAFT"); }}><span className="dot dot-coral"/><span>{language === "zh" ? "研究" : "Research"}</span><b>{artifacts.filter((item) => item.status === "DRAFT").length}</b></button>
       </nav>
       <button className="add-collection" onClick={() => setToast(language === "zh" ? "收藏夹创建功能即将推出" : "Collections are coming soon.")}><Plus size={16}/>{language === "zh" ? "添加收藏夹" : "Add collection"}</button>
       <div className="profile"><span className="avatar">ES</span><div><strong>Ethan Shen</strong><small>{language === "zh" ? "免费版" : "Free plan"}</small></div><button aria-label="Profile menu"><ChevronDown size={15}/></button></div>
@@ -186,14 +198,13 @@ export default function Home() {
 
     <main className="workspace">
       <header className="topbar">
-        <div className="crumb"><span>{t.all}</span><ChevronRight size={15}/><strong>{selected?.title ?? t.document}</strong></div>
+        <div className="crumb"><span>{workspaceTitle}</span><ChevronRight size={15}/><strong>{selected?.title ?? t.document}</strong></div>
         <div className="top-actions"><div className="language"><button className={language === "zh" ? "active" : ""} onClick={() => setLanguage("zh")}>中</button><span>/</span><button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>EN</button></div><button className="icon-button" aria-label="Search" onClick={() => setSearchOpen((open) => !open)}><Search size={20}/></button><button className="icon-button" aria-label="Settings" onClick={() => setToast(language === "zh" ? "设置将在下一步开放" : "Settings will be available next.")}><Settings2 size={20}/></button><button className="help" aria-label="Help" onClick={() => setToast(language === "zh" ? "需要帮助？上传一个文件即可开始。" : "Need help? Upload a file to get started.")}><HelpCircle size={18}/></button></div>
       </header>
       {searchOpen && <div className="utility-panel"><Search size={16}/><input autoFocus placeholder={language === "zh" ? "搜索产物" : "Search artifacts"} onChange={(event) => { const value = event.target.value.trim().toLowerCase(); const match = artifacts.find((item) => item.title.toLowerCase().includes(value)); if (match) setSelectedId(match.id); }}/><button onClick={() => setSearchOpen(false)}><X size={16}/></button></div>}
       <section className="page-head"><div><p className="eyebrow">{t.eyebrow}</p><h1>{t.title}</h1><p className="subhead">{t.subtitle}</p></div><button className="upload" onClick={() => setUploadOpen(true)}><Upload size={18}/>{t.upload}</button></section>
       <section className="stats"><div><small>{t.active}</small><strong>{artifacts.length}</strong><em>/ 3 {language === "zh" ? "免费" : "free"}</em></div><div><small>{t.pending}</small><strong>{artifacts.reduce((sum, item) => sum + item.comments, 0)}</strong><span className="up">↗ {language === "zh" ? "本周新增 3 条" : "3 new this week"}</span></div><div><small>{t.visits}</small><strong>{artifacts.reduce((sum, item) => sum + item.views, 0)}</strong><span className="up">↗ 18%</span></div><button onClick={() => setToast(language === "zh" ? "Pro 功能即将开放" : "Pro features are coming soon.")}>{t.unlock} ↗</button></section>
-      <section className="filter-row"><div className="tabs"><button className={filter === "ALL" ? "current" : ""} onClick={() => setFilter("ALL")}>{t.all}<span>{artifacts.length}</span></button><button className={filter === "IN_REVIEW" ? "current" : ""} onClick={() => setFilter("IN_REVIEW")}>{t.reviewing}<span>{artifacts.filter((item) => item.status === "IN_REVIEW").length}</span></button><button className={filter === "DRAFT" ? "current" : ""} onClick={() => setFilter("DRAFT")}>{t.drafts}<span>{artifacts.filter((item) => item.status === "DRAFT").length}</span></button><button className={filter === "APPROVED" ? "current" : ""} onClick={() => setFilter("APPROVED")}>{t.approved}<span>{artifacts.filter((item) => item.status === "APPROVED").length}</span></button></div><button className="sort" onClick={() => setDescending((current) => !current)}>{t.latest}<ChevronDown className={descending ? "" : "flip"} size={14}/></button></section>
-      <section className="artifact-list">{visibleArtifacts.length === 0 ? <div className="empty-state"><p>{filter === "ALL" ? t.noArtifacts : (language === "zh" ? "这个分类暂时没有产物。" : "There are no artifacts in this category.")}</p>{filter === "ALL" && <button className="upload" onClick={() => setUploadOpen(true)}><Upload size={16}/>{t.upload}</button>}</div> : visibleArtifacts.map((artifact) => <ArtifactRow key={artifact.id} artifact={artifact} selected={artifact.id === selected?.id} language={language} onSelect={() => openReview(artifact.id)} />)}</section>
+      {workspaceView === "activity" ? <ActivityFeed artifacts={artifacts} language={language} onOpen={openReview}/> : <><section className="filter-row"><div className="tabs"><button className={filter === "ALL" ? "current" : ""} onClick={() => setFilter("ALL")}>{t.all}<span>{artifacts.length}</span></button><button className={filter === "IN_REVIEW" ? "current" : ""} onClick={() => setFilter("IN_REVIEW")}>{t.reviewing}<span>{artifacts.filter((item) => item.status === "IN_REVIEW").length}</span></button><button className={filter === "DRAFT" ? "current" : ""} onClick={() => setFilter("DRAFT")}>{t.drafts}<span>{artifacts.filter((item) => item.status === "DRAFT").length}</span></button><button className={filter === "APPROVED" ? "current" : ""} onClick={() => setFilter("APPROVED")}>{t.approved}<span>{artifacts.filter((item) => item.status === "APPROVED").length}</span></button></div><button className="sort" onClick={() => setDescending((current) => !current)}>{t.latest}<ChevronDown className={descending ? "" : "flip"} size={14}/></button></section><section className="artifact-list">{visibleArtifacts.length === 0 ? <div className="empty-state"><p>{workspaceView === "favorites" ? (language === "zh" ? "还没有收藏。点产物右侧的菜单图标即可收藏。" : "No favorites yet. Use the menu beside an artifact to save one.") : filter === "ALL" ? t.noArtifacts : (language === "zh" ? "这个分类暂时没有产物。" : "There are no artifacts in this category.")}</p>{workspaceView === "all" && <button className="upload" onClick={() => setUploadOpen(true)}><Upload size={16}/>{t.upload}</button>}</div> : visibleArtifacts.map((artifact) => <ArtifactRow key={artifact.id} artifact={artifact} selected={artifact.id === selected?.id} favorite={favoriteIds.includes(artifact.id)} language={language} onSelect={() => openReview(artifact.id)} onToggleFavorite={() => toggleFavorite(artifact.id)} />)}</section></>}
     </main>
 
     {reviewOpen && selected && <aside className="review-pane">
@@ -238,11 +249,16 @@ function MarkdownPreview({ content, fallbackTitle, language }: { content: string
   })}</div>;
 }
 
-function ArtifactRow({ artifact, selected, language, onSelect }: { artifact: Artifact; selected: boolean; language: Language; onSelect: () => void }) {
+function ArtifactRow({ artifact, selected, favorite, language, onSelect, onToggleFavorite }: { artifact: Artifact; selected: boolean; favorite: boolean; language: Language; onSelect: () => void; onToggleFavorite: () => void }) {
   const icon = artifact.format === "HTML" ? <FileCode2 size={19}/> : <FileText size={19}/>;
   const tone = artifact.format === "HTML" ? "mint" : artifact.format === "PDF" ? "coral" : artifact.format === "MARKDOWN" ? "amber" : "slate";
   const status = artifact.status === "DRAFT" ? (language === "zh" ? "草稿" : "Draft") : artifact.status;
-  return <div className={`artifact ${selected ? "selected" : ""}`}><button className="artifact-main" onClick={onSelect}><span className={`file-icon ${tone}`}>{icon}</span><span className="artifact-name"><strong>{artifact.title}</strong><small>{formatMeta(artifact.format, language)} · {relativeTime(artifact.updatedAt, language)}</small></span><span className="status draft">{status}</span><span className="people"><i>MC</i><i>JR</i><i>+2</i></span><span className="comment-count">{artifact.comments}</span></button><button className="more-button" aria-label="More options" onClick={() => onSelect()}><MoreHorizontal size={18}/></button></div>;
+  return <div className={`artifact ${selected ? "selected" : ""}`}><button className="artifact-main" onClick={onSelect}><span className={`file-icon ${tone}`}>{icon}</span><span className="artifact-name"><strong>{artifact.title}</strong><small>{formatMeta(artifact.format, language)} · {relativeTime(artifact.updatedAt, language)}</small></span><span className="status draft">{status}</span><span className="people"><i>MC</i><i>JR</i><i>+2</i></span><span className="comment-count">{artifact.comments}</span></button><button className={`more-button ${favorite ? "favorited" : ""}`} aria-label={favorite ? "Remove from favorites" : "Add to favorites"} onClick={onToggleFavorite}><Star size={17} fill={favorite ? "currentColor" : "none"}/></button></div>;
+}
+
+function ActivityFeed({ artifacts, language, onOpen }: { artifacts: Artifact[]; language: Language; onOpen: (id: string) => void }) {
+  const isZh = language === "zh";
+  return <section className="activity-feed"><p className="activity-heading">{isZh ? "最近动态" : "Recent activity"}</p>{artifacts.slice().sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).map((artifact) => <button key={artifact.id} className="activity-item" onClick={() => onOpen(artifact.id)}><span className="activity-bullet"/><span><strong>{artifact.title}</strong><small>{isZh ? `更新了 v${artifact.versions}.0` : `updated v${artifact.versions}.0`} · {relativeTime(artifact.updatedAt, language)}</small></span><ChevronRight size={16}/></button>)}</section>;
 }
 
 function CommentCard({ initials, name, body }: { initials: string; name: string; body: string }) {
